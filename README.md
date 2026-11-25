@@ -1,29 +1,40 @@
-# Athena Live Data Agent
+# CVE Vulnerability Explorer (Athena AI agent)
 
-An Athena AI agent that fetches **real, live public data** through an **MCP server** and renders it in an **embedded interactive widget** inside the Athena chat.
+Explore real, live cybersecurity vulnerabilities by **vendor, product, severity and publication date** inside an Athena chat, through an **MCP server** and an **embedded interactive widget**.
 
-## How it works
+- Agent: https://athenachat.bot/chatbot/agent/live-data-explorer7442
+- MCP endpoint: https://athena-mcp.hassankhachab999.workers.dev/mcp
 
-- `worker.js` is a single-file **Cloudflare Worker** that implements an MCP server over **Streamable HTTP** (stateless JSON-RPC) at `/mcp`.
-- It exposes one tool, `explore_data`, which fetches live data from a public source and returns it as `structuredContent`.
-- The tool's `_meta["openai/outputTemplate"]` points to a widget resource `ui://widget/explorer.html` served with the `text/html+skybridge` MIME type, so Athena renders it inside the chat.
-- The widget reads `window.openai.toolOutput`, and is interactive: live filter, sorting, a bar chart, clickable rows with a details panel, and a **Refresh live data** button that calls the tool again through `window.openai.callTool`. UI state is kept with `window.openai.setWidgetState`.
+## Data source
 
-## MCP methods implemented
+- **NIST National Vulnerability Database (NVD) CVE API 2.0**, which is public and needs no key. It is queried live with `keywordSearch`, `cvssV3Severity`, `pubStartDate` and `pubEndDate`, and the newest page is returned.
+- If NVD is unavailable, the server falls back to the **CISA Known Exploited Vulnerabilities** catalog.
 
-`initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list` (plus CORS for browser clients).
+## MCP server (`worker.js`)
+
+`worker.js` is a single-file Cloudflare Worker with no dependencies. It implements MCP over Streamable HTTP (stateless JSON-RPC) at `/mcp`.
+
+- Tool **`search_vulnerabilities`** takes `{ keyword, severity, days, limit }`.
+  - It returns `structuredContent` with the CVE list: id, vendor and product (parsed from CPE, or taken from the CNA as a fallback), CVSS score, severity, vector, published date, description and NVD link.
+  - It also returns a text summary for the model.
+- The tool's `_meta["openai/outputTemplate"]` points to the widget resource `ui://widget/vuln-explorer.html` (`text/html+skybridge`).
+- Methods: `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/read`, `resources/templates/list`, `prompts/list`. CORS is enabled.
+
+## Widget interactions
+
+1. **Severity chips** (CRITICAL / HIGH / MEDIUM / LOW) with counts. Click a chip to toggle it.
+2. **Vendor dropdown**, built from the results, plus a free-text filter for product or CVE ID.
+3. **Publication-date bar chart** showing CVEs per day. Click a bar to filter to that day.
+4. **Sort** by newest first or by highest CVSS first.
+5. **Click a CVE** to open a details panel with the description, CVSS vector and NVD link.
+6. **Live re-query:** change the vendor/product keyword and the time window, then press *Search NVD*. This calls the MCP tool again through `window.openai.callTool`.
+
+The stats tiles (matching, shown, critical and average CVSS) update with every filter.
 
 ## Deploy
 
-1. Create a Cloudflare Worker and paste `worker.js` (no build step or dependencies).
-2. Deploy. The MCP endpoint is `https://<worker>.workers.dev/mcp`.
-3. In Athena: **Create Chat Agent → Capabilities → MCP Server URL**, paste the endpoint, publish.
-
-## Test locally
-
-```bash
-npx @modelcontextprotocol/inspector@latest --server-url https://<worker>.workers.dev/mcp --transport http
-```
+1. Create a Cloudflare Worker, paste `worker.js` and deploy.
+2. In Athena, go to **Create Chat Agent → Capabilities → MCP Server URL**, enter `https://<worker>.workers.dev/mcp`, then publish.
 
 ## Author
 
